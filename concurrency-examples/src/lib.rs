@@ -1,5 +1,8 @@
+mod actors;
+mod memory_ordering;
+
 use dashmap::DashMap;
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 

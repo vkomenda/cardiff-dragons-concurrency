@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+actix = "0.13.5"
+actix-rt = "2.10.0"
 dashmap = "6.0.1"
 rayon = "1.10.0"

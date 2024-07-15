@@ -18,11 +18,15 @@
     - [The cost of scalability](#the-cost-of-scalability)
 - [Concurrency models](#concurrency-models)
     - [Shared memory](#shared-memory)
+        - [Example: state guarded by a mutex](#example-state-guarded-by-a-mutex)
+        - [Example: state stored in a concurrent hash map](#example-state-stored-in-a-concurrent-hash-map)
     - [Worker pools](#worker-pools)
+        - [Example: parallel matrix multiplication](#example-parallel-matrix-multiplication)
         - [Connection pools](#connection-pools)
     - [Actors](#actors)
+        - [How messaging works in the `actix-rt` actor framework (shared memory message queues)](#how-messaging-works-in-the-actix-rt-actor-framework-shared-memory-message-queues)
 - [Asynchrony and parallelism](#asynchrony-and-parallelism)
-    - [Synchronisation primitives](#synchronisation-primitives)
+    - [Asynchronous (non-blocking) synchronisation primitives](#asynchronous-non-blocking-synchronisation-primitives)
 - [Low-level concurrency](#low-level-concurrency)
     - [Memory operations](#memory-operations)
     - [Atomic types](#atomic-types)
@@ -47,7 +51,7 @@
 
 **Do's:**
 
-- How to add concurrency in Rust programs and libraries
+- How to add concurrency in `std` Rust programs and libraries
 - How to use concurrency primitives correctly
 
 **Dont's:**
@@ -60,7 +64,7 @@
 
 - experience with concurrent Rust
 - basic familiarity with multi-core processor architectures
-- basic understanding of concurrency
+- basic understanding of concurrency in a desktop OS
 
 
 ## Three flavours of concurrency
@@ -249,6 +253,10 @@ Rust has three concurrency models:
  - worker pools
  - actors
 
+These are in addition to models managed by the OS:
+ - fork-join
+ - message passing between OS processes through sockets
+
 
 ## Shared memory
 
@@ -324,12 +332,13 @@ fn shared_mem_dashmap() -> usize {
  - shared memory is used for the job queue and result collection
  - work stealing - an idle thread can take other thread's job if that hasn't started yet
  - fits SIMD (single instruction, multiple data) applications
+ - `rayon`, `tokio` => don't work in `no_std`
 
 
 ### Example: parallel matrix multiplication
 
 ```rust
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 fn worker_pool_matrix_multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n = a.len();
@@ -358,23 +367,183 @@ fn worker_pool_matrix_multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> 
  - connection lifecycle management is a complex issue
    - every thread needs to be given a connection with no state from previous users
 
+
 ## Actors
 
-### `riker`
+ - many job *actors*
+ - one queue for each actor
+ - each actor acts on its own job topic and its subset of state
+   - database connection
+   - file
+   - a structure that has to be accessed by many threads
+ - message-passing concurrency
+   - no locks are required for state management, only for message handling
+ - actors don't have to be threads, other options:
+   - OS processes communicating via OS sockets
+   - Docker containers or Kubernetes pods communicating via HTTP
+   - actor executed in it's own worker pool
+
+
+### How messaging works in the `actix-rt` actor framework (shared memory message queues)
+
+1. **Message Definition**: You define messages, which are plain Rust structs or enums.
+
+```rust
+struct Ping;
+impl Message for Ping {
+    type Result = ();
+}
+```
+
+2. **Sending a Message**: When an actor sends a message, it calls the `do_send` method on the
+   recipient actor’s reference.
+
+```rust
+struct PingActor {
+    pong: Addr<PongActor>,
+}
+
+self.pong.do_send(Ping);
+```
+
+3. **Receiving a Message**: When an actor receives a message, the `handle` method of the actor is
+   called with the message.
+
+```rust
+impl Handler<Ping> for PongActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: Ping, ctx: &mut Context<Self>) {
+        // Handle the message.
+    }
+}
+```
 
 
 # Asynchrony and parallelism
 
-## Synchronisation primitives
+When applications need both asynchrony and parallelism, there are suitable futures executors.
+
+ - Futures need to be `Send` to be sent to threads in the worker pool
+ - Parallel futures need to be spawned explicitly: executors don't automatically spawn them if they
+   are part of a bigger `Future`
+
+
+## Asynchronous (non-blocking) synchronisation primitives
+
+1. **Mutex**
+ - **Type**: `tokio::sync::Mutex`
+ - **Usage**: Provides mutual exclusion for data shared between async tasks.
+
+2. **RwLock**
+ - **Type**: `tokio::sync::RwLock`
+ - **Usage**: Provides asynchronous readers-writer lock.
+
+3. **Semaphore**
+ - **Type**: `tokio::sync::Semaphore`
+ - **Usage**: Limits the number of concurrent operations.
+
+4. **Notify**
+ - **Type**: `tokio::sync::Notify`
+ - **Usage**: Notifies one or multiple tasks of an event.
+
+5. **Barrier**
+ - **Type**: `tokio::sync::Barrier`
+ - **Usage**: allows asynchronous tasks to synchronize, ensuring they await until all tasks reach
+   the barrier point.
+
+Other crates to consider: `async-std`, `futures`.
+
+Blocking primitives should be preferred in cases when there is no risk of deadlock because they
+don't introduce the polling overhead.
 
 
 # Low-level concurrency
 
+There are a few CPU type primitives in `std::sync::atomic` that all high-level mechanisms discussed
+so far rely on.
+
+They can be used in their own right for light-weight cooperation between threads, like
+
+ - incrementing a shared `usize` counter
+ - setting a shared Boolean to `true`
+
+These types have well-defined concurrent semantics.
+
+
 ## Memory operations
+
+*Memory* consists of DRAM and a hierarchy of caches. (It *can* include harddrive storage.)
+
+When the program does need to access memory, there are two kinds of CPU memory instructions:
+ - *loads*
+ - *stores*
+with each operating on up to 8 bytes.
+
+*Compiler* makes use of CPU registers for intermediate accesses.
+
+*CPU* pipelines and reorders instructions at execution time to optimise performance.
+
+In parallel contexts, these program transformations can impact application behaviour.
+
+To ensure the desired behaviour, there are multiple load/store instructions, each with own
+concurrent semantics.
+
+Rust provides access to those instructions by means of atomic types and their methods.
+
 
 ## Atomic types
 
+ - accessed atomically - loaded or stored all at once
+ - size of up to 8 bytes
+ - `AtomicUsize`, `AtomicI32`, `AtomicBool`, `AtomicPtr`, ...
+
+
 ## Memory ordering
+
+ - Methods of atomic types take an `Ordering` argument.
+ - The CPU only applies program transformations according to that memory ordering.
+
+
+### Relaxed ordering
+
+```rust
+fn relaxed_ordering() -> (bool, bool) {
+    // Shared flags
+    let x = Arc::new(AtomicBool::new(false));
+    let y = Arc::new(AtomicBool::new(false));
+
+    let t1 = {
+        let x = Arc::clone(&x);
+        let y = Arc::clone(&y);
+        thread::spawn(move || {
+            let a = y.load(Ordering::Relaxed);
+            x.store(a, Ordering::Relaxed);
+        })
+    };
+
+    let t2 = {
+        let x = Arc::clone(&x);
+        let y = Arc::clone(&y);
+        thread::spawn(move || {
+            let _b = x.load(Ordering::Relaxed);
+            y.store(true, Ordering::Relaxed);
+        })
+    };
+
+    t1.join().unwrap();
+    t2.join().unwrap();
+
+    (x.load(Ordering::Relaxed), y.load(Ordering::Relaxed))
+}
+```
+
+#### Possible values
+`(false, true)` and `(true, true)`
+
+
+### Acquire/release ordering
+
 
 ### Atomic memory order
 
