@@ -503,6 +503,9 @@ Rust provides access to those instructions by means of atomic types and their me
 
  - Methods of atomic types take an `Ordering` argument.
  - The CPU only applies program transformations according to that memory ordering.
+ - Same semantics as in [C++20 reference](https://en.cppreference.com/w/cpp/atomic/memory_order)
+ - *inter-thread synchronization boils down to preventing data races (by establishing happens-before
+   relationships) and defining which side effects become visible under what conditions*
 
 
 ### Relaxed ordering
@@ -543,6 +546,54 @@ fn relaxed_ordering() -> (bool, bool) {
 
 
 ### Acquire/release ordering
+
+ - memory accesses in this thread cannot be moved from after to before an **Acquire** load
+ - memory accesses in this thread cannot be moved from before to after a **Release** store
+ - all stores in other threads that **Release** (store) a variable are visible in the thread that
+   **Acquires** (loads) that variable
+ - all stores in the thread that stores a **Release** variable are visible in other threads that
+   **Acquire** (load) the same atomic variable
+
+**Fun fact**: Using **Relaxed** ordering on Intel or AMD doesn't introduce a speedup!
+ - On **x86** and **x86_64**, Acquire/Release ordering is guaranteed by hardware.
+
+
+### Acquire/release ordering: corrected example
+
+```rust
+fn acqrel_ordering() -> (bool, bool) {
+    // Shared flags
+    let x = Arc::new(AtomicBool::new(false));
+    let y = Arc::new(AtomicBool::new(false));
+
+    let t1 = {
+        let x = Arc::clone(&x);
+        let y = Arc::clone(&y);
+        thread::spawn(move || {
+            let a = y.load(Ordering::Acquire);
+            x.store(a, Ordering::Release);
+        })
+    };
+
+    let t2 = {
+        let x = Arc::clone(&x);
+        let y = Arc::clone(&y);
+        thread::spawn(move || {
+            let _b = x.load(Ordering::Acquire);
+            y.store(true, Ordering::Release);
+        })
+    };
+
+    t1.join().unwrap();
+    t2.join().unwrap();
+
+    (x.load(Ordering::Acquire), y.load(Ordering::Acquire))
+}
+```
+
+### Sequentially consistent ordering
+
+ - consistent with Acquire/Release plus all threads see the same ordering as one another
 
 
 ### Atomic memory order
