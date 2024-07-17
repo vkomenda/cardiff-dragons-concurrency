@@ -87,6 +87,37 @@ fn acqrel_relaxed_ordering() -> i32 {
     z.load(Ordering::Acquire)
 }
 
+static LOCK: AtomicBool = AtomicBool::new(false);
+
+fn bad_mutex(f: impl FnOnce()) {
+    // Wait for the lock to become false
+    while LOCK.load(Ordering::Acquire) {
+        // Compiler hint to a avoid spinning
+        std::hint::spin_loop();
+    }
+    LOCK.store(true, Ordering::Release);
+    // Call f while holding the lock
+    f();
+    // Release the lock
+    LOCK.store(false, Ordering::Release);
+}
+
+fn mutex(f: impl FnOnce()) {
+    // Wait for the lock to become false
+    loop {
+        let take = LOCK.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed);
+        match take {
+            Ok(false) => break,
+            Ok(true) | Err(false) => unreachable!(),
+            Err(true) => std::hint::spin_loop(),
+        }
+    }
+    // Call f while holding the lock
+    f();
+    // Release the lock
+    LOCK.store(false, Ordering::Release);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,4 +1,5 @@
 mod actors;
+mod loom;
 mod memory_ordering;
 
 use dashmap::DashMap;
