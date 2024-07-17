@@ -31,6 +31,11 @@
     - [Memory operations](#memory-operations)
     - [Atomic types](#atomic-types)
     - [Memory ordering](#memory-ordering)
+        - [Relaxed ordering](#relaxed-ordering)
+            - [Possible values](#possible-values)
+        - [Acquire/release ordering](#acquirerelease-ordering)
+        - [Acquire/release ordering: corrected example](#acquirerelease-ordering-corrected-example)
+        - [Sequentially consistent ordering](#sequentially-consistent-ordering)
         - [Atomic memory order](#atomic-memory-order)
     - [Compare and exchange](#compare-and-exchange)
     - [The Fetch methods](#the-fetch-methods)
@@ -190,9 +195,8 @@ where:
  - (1 - P) is the fraction of the program that is sequential (cannot be parallelised).
  - N is the number of processors.
 
-Example:
+![Wikipedia by Daniels220](./images/AmdahlsLaw.png)
 
-TODO
 
 
 ### Shared resource exhaustion
@@ -520,8 +524,8 @@ fn relaxed_ordering() -> (bool, bool) {
         let x = Arc::clone(&x);
         let y = Arc::clone(&y);
         thread::spawn(move || {
-            let a = y.load(Ordering::Relaxed);
-            x.store(a, Ordering::Relaxed);
+            let a = y.load(Ordering::Relaxed);   // 1
+            x.store(a, Ordering::Relaxed);       // 2
         })
     };
 
@@ -529,8 +533,8 @@ fn relaxed_ordering() -> (bool, bool) {
         let x = Arc::clone(&x);
         let y = Arc::clone(&y);
         thread::spawn(move || {
-            let _b = x.load(Ordering::Relaxed);
-            y.store(true, Ordering::Relaxed);
+            let _b = x.load(Ordering::Relaxed);  // 3
+            y.store(true, Ordering::Relaxed);    // 4
         })
     };
 
@@ -591,14 +595,49 @@ fn acqrel_ordering() -> (bool, bool) {
 }
 ```
 
+
+### Undesirable reordering with Acquire/Release and Relaxed
+
+```rust
+static X: AtomicBool = AtomicBool::new(false);
+static Y: AtomicBool = AtomicBool::new(false);
+static Z: AtomicI32 = AtomicI32::new(0);
+
+let t1 = spawn(|| {
+    X.store(true, Ordering::Release);
+});
+
+let t2 = spawn(|| {
+    Y.store(true, Ordering::Release);
+});
+
+let t3 = spawn(|| {
+    while !X.load(Ordering::Acquire) {}
+    if Y.load(Ordering::Acquire) {
+        Z.fetch_add(1, Ordering::Relaxed);
+    }
+});
+
+let t4 = spawn(|| {
+    while !Y.load(Ordering::Acquire) {}
+    if X.load(Ordering::Acquire) {
+        Z.fetch_add(1, Ordering::Relaxed);
+    }
+});
+```
+
+Z can be 1 or 2, or even 0 theoretically (tests haven't confirmed the latter)
+
+
 ### Sequentially consistent ordering
 
+ - the strongest ordering
  - consistent with Acquire/Release plus all threads see the same ordering as one another
 
+**Key takeaways**
+ - If in doubt, use `Ordering::SeqCst`.
+ - Don't bother about `Ordering::Relaxed` on x86. Use it on ARM and RISC V.
 
-### Atomic memory order
-
- - [C++20 reference](https://en.cppreference.com/w/cpp/atomic/memory_order)
 
 ## Compare and exchange
 
