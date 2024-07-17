@@ -43,7 +43,7 @@
     - [Use concurrency testing tools](#use-concurrency-testing-tools)
         - [Model checking with Loom](#model-checking-with-loom)
         - [Runtime checking with ThreadSanitizer](#runtime-checking-with-threadsanitizer)
-    - [Heisenbugs](#heisenbugs)
+        - [Heisenbugs](#heisenbugs)
 - [Summary](#summary)
 
 <!-- markdown-toc end -->
@@ -787,3 +787,14 @@ WARNING: ThreadSanitizer: data race ...
 
 
 # Summary
+
+- Concurrency model
+- Synchronization
+- Communication
+- Deadlock Avoidance
+- Scalability
+- Performance
+- Error Handling
+- Debugging and Testing
+- High-level Abstractions
+- Design Patterns

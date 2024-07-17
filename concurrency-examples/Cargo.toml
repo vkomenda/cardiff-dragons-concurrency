@@ -19,7 +19,3 @@ debug = true
 [[bench]]
 name = "benchmarks"
 harness = false
-
-[[bench]]
-name = "matrix_multiply"
-harness = false
